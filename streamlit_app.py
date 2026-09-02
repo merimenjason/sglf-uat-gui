@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     import fcntl
@@ -136,9 +137,12 @@ def apply_styles() -> None:
         [data-testid="stMetric"] { background: #0b2f3c; border: 1px solid var(--line); padding: 10px 12px; border-radius: 7px; }
         [data-testid="stMetricValue"] { color: var(--ink); font-size: 19px; }
         [data-testid="stMetricLabel"] { color: var(--muted); }
-        .stButton > button[kind="primary"] { background: var(--lime); color: #18313a; border: 1px solid var(--lime); font-weight: 800; border-radius: 6px; min-height: 42px; box-shadow: none; }
-        .stButton > button[kind="primary"]:hover { background: #d3e71a; color: #102830; border-color: #d3e71a; }
+        .stButton > button[kind="primary"] { background: var(--lime); color: #18313a !important; border: 1px solid var(--lime); font-weight: 800; border-radius: 6px; min-height: 42px; box-shadow: none; }
+        .stButton > button[kind="primary"] p { color: #18313a !important; }
+        .stButton > button[kind="primary"]:hover { background: #d3e71a; color: #102830 !important; border-color: #d3e71a; }
+        .stButton > button[kind="primary"]:hover p { color: #102830 !important; }
         .stButton > button:disabled { background: #294550 !important; color: #6f8d98 !important; border-color: #315563 !important; }
+        .stButton > button:disabled p { color: #6f8d98 !important; }
         [data-testid="stStatusWidget"], [data-testid="stExpander"] { background: var(--card); border-color: var(--line); }
         [data-testid="stProgressBar"] > div > div { background-color: var(--lime); }
         hr { border-color: var(--line) !important; }
@@ -461,6 +465,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown('<div id="run-status" style="scroll-margin-top: 16px;"></div>', unsafe_allow_html=True)
 run_status_slot = st.empty()
 st.markdown('<span id="scenarios"></span>', unsafe_allow_html=True)
 left, right = st.columns([1.65, 1], gap="large")
@@ -584,6 +589,17 @@ with right:
             )
 
 if run_clicked:
+    components.html(
+        """
+        <script>
+        window.requestAnimationFrame(() => {
+            const target = window.parent.document.getElementById("run-status");
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        </script>
+        """,
+        height=0,
+    )
     result = run_automation(
         scenario=scenario_id,
         scenario_label=scenario_label,
