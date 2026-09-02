@@ -210,6 +210,7 @@ def run_automation(
     medical_amount: float,
     baggage_amount: float,
     live_preview_slot,
+    run_status_slot,
 ) -> RunResult:
     started = time.monotonic()
     logs: deque[str] = deque(maxlen=250)
@@ -255,7 +256,7 @@ def run_automation(
             if chromium:
                 environment["PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"] = chromium
 
-            with st.status("Starting the secure UAT browser…", expanded=True) as status_panel:
+            with run_status_slot.status("Starting the secure UAT browser…", expanded=True) as status_panel:
                 progress = st.progress(10, text="Preparing the temporary test data")
                 live_line = st.empty()
                 live_line.caption("Live browser checkpoints will appear in the preview panel.")
@@ -460,6 +461,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+run_status_slot = st.empty()
 st.markdown('<span id="scenarios"></span>', unsafe_allow_html=True)
 left, right = st.columns([1.65, 1], gap="large")
 
@@ -590,6 +592,7 @@ if run_clicked:
         medical_amount=medical_amount,
         baggage_amount=baggage_amount,
         live_preview_slot=live_preview_slot,
+        run_status_slot=run_status_slot,
     )
     st.session_state["last_result"] = result
     history = st.session_state.setdefault("run_history", [])
