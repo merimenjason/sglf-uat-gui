@@ -1,0 +1,225 @@
+# Travel Claims UAT Runner — Streamlit + Playwright
+
+A single-repository web interface for non-technical QA users to run the three packaged Singlife travel-claim scenarios against Merimen UAT.
+
+The interface uses the visual system of [jason.engineering](https://jason.engineering/): a deep navy workspace, teal brand header, blue navigation, compact dark metric cards, pale cyan typography, and lime status accents. The product name and claims-specific wording remain unique to this tool.
+
+Streamlit and the Python Playwright automation run together in the same temporary cloud environment. This version does not require Vercel, GitHub Pages, Cloudflare Workers, GitHub Actions, an internal VM, or a separate container service.
+
+## Repository contents
+
+```text
+streamlit_app.py             Web interface
+singlife_travel_claim.py     Playwright automation
+requirements.txt             Python dependencies
+packages.txt                 System Chromium for Streamlit Cloud
+.streamlit/config.toml       App theme and safe defaults
+assets/favicon.png           jason.engineering favicon used in the tab and header
+sample_dummy_docs/           Packaged dummy UAT documents
+```
+
+Keep this repository **private** because run logs and failure screenshots may contain UAT form data.
+
+## Deploy on Streamlit Community Cloud
+
+1. Create a private GitHub repository and upload the contents of this folder. The files should be at the repository root, not inside another enclosing folder.
+2. Sign in at [share.streamlit.io](https://share.streamlit.io/) using the GitHub account that can access the repository.
+3. Select **Create app**, then **Yup, I have an app**.
+4. Choose the repository and the `main` branch.
+5. Set the entrypoint to `streamlit_app.py`.
+6. Open **Advanced settings** and select Python 3.12. No secrets are required by the packaged app.
+7. Deploy the app and wait for Streamlit to install both `requirements.txt` and the Debian `packages.txt` dependencies.
+8. In the app's sharing settings, keep it private and invite only approved QA users.
+9. For the first run, change the preselected action from **Submit to UAT** to **Review before submission**. Confirm that it reaches only the Merimen UAT portal and stops at the final confirmation point.
+
+Streamlit Community Cloud may put an inactive app to sleep. Opening the app wakes it again, so the first page load after a period of inactivity can take longer.
+
+## Run locally
+
+Use Python 3.12 where possible:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+streamlit run streamlit_app.py
+```
+
+Open the local URL printed by Streamlit. The app does not execute Playwright until a user presses the run button.
+
+## Built-in safety controls
+
+- **Submit to UAT** is selected by default, as requested, but remains disabled until the user checks the separate dummy-data/UAT confirmation.
+- Review mode remains available and adds `--no-submit`.
+- The original automation remains hard-pinned to `clientportaluat.merimen.com`.
+- Only the three packaged scenarios are accepted.
+- Policy suffixes accept only letters, numbers, and hyphens.
+- Only one claim can run at a time across app sessions.
+- Each run stops after ten minutes.
+- The automation is launched with an argument list rather than a shell command.
+- A private live-browser panel refreshes from atomic viewport screenshots at six meaningful Playwright checkpoints.
+- The last live checkpoint remains visible with the run result; failure screenshots can be downloaded when available.
+- Recent-run history exists only in the current Streamlit session.
+
+## Cloud limitations
+
+- If Merimen UAT uses an outbound-IP allowlist, Streamlit Community Cloud may not be able to reach it because its egress IP is not intended to be a fixed corporate address.
+- A headless review run closes the temporary browser after reaching the final confirmation dialog. The live panel shows periodic screenshots rather than an interactive browser or video stream.
+- Cloud resources are shared and intended for lightweight apps. The package prevents concurrent Chromium runs to reduce memory pressure.
+- The original automation notes that its first end-to-end observed review run is still required.
+
+## Troubleshooting deployment
+
+### Chromium executable not found
+
+Confirm that `packages.txt` is at the repository root and contains `chromium`. Streamlit Community Cloud installs entries in this file with Debian's package manager. The app detects `chromium` automatically and passes its path to Playwright.
+
+### The app is private but a colleague cannot open it
+
+Add the colleague as a viewer in the Streamlit app's sharing settings. Do not make the app public as a workaround.
+
+### The run fails before the portal opens
+
+Expand **Technical run log** in the result. A downloadable screenshot appears when the browser was able to capture the failing page. Confirm the app can reach the Merimen UAT hostname and that the portal has not introduced an IP restriction.
+
+### The app says another run is active
+
+Wait for the current run to finish or reach its ten-minute timeout. The one-run limit is intentional.
+
+## Original automation reference
+
+Fast, repeatable Playwright automation for the Singlife General Insurance
+"Travel Claim" flow on the Merimen UAT Client Portal. Companion to the
+`singlife-travel-claim-uat` Claude skill — use this script for quick
+regression runs of the three known test cases; use the Claude skill when you
+need something flexible (a new/unusual scenario, or judgment calls).
+
+**UAT only.** The script is hard-pinned to
+`https://clientportaluat.merimen.com/public/client/clp/clpdashboard?ins_code=SG_SINGLIFE`
+and auto-confirms the final submission dialog, mirroring the team's standing
+approval for this UAT/dummy-data workflow. Do not repoint it at production.
+
+## Setup
+
+Recommended: install into a virtual environment, since recent Ubuntu/Debian
+Python refuses global `pip install` with an "externally-managed-environment"
+error (PEP 668):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+```
+
+Every subsequent `python singlife_travel_claim.py ...` command needs that
+same venv active — run `source .venv/bin/activate` again in any new
+terminal before using the script.
+
+Alternatives if you'd rather not use a venv:
+
+```bash
+# Option A: pipx (installs into its own isolated environment)
+pipx install playwright
+pipx run playwright install chromium
+
+# Option B: force pip to install into the system environment anyway
+# (only do this if you understand the tradeoff — it can conflict with
+# packages your OS manages)
+pip install -r requirements.txt --break-system-packages
+playwright install chromium
+```
+
+## Run
+
+```bash
+# Auto-approved medical expense claim (S$250)
+python singlife_travel_claim.py --case medical
+
+# Flight delay claim (AV222 / Colombia / 24 Feb 2026)
+python singlife_travel_claim.py --case flight_delay
+
+# Baggage loss/damage, max limit (2 items x S$75)
+python singlife_travel_claim.py --case baggage
+```
+
+Useful flags:
+
+- `--headed` — show the browser window instead of running headless.
+- `--slow-mo 150` — slow down each action by N ms (handy with `--headed` for
+  watching a run).
+- `--no-submit` — fill out the entire form and stop right before the
+  "Confirm" click on the final "Proceed to Submit?" dialog, so you can
+  eyeball everything first. Combine with `--headed` to leave the browser
+  open for inspection (press Enter in the terminal to close it).
+- `--policy-suffix SOMETHING` — appended to the dummy policy number, on
+  top of the random 3-digit prefix every run already gets (e.g.
+  `042MEDICAL250`) so repeat runs are distinguishable in the UAT system.
+  The insured's surname/given name (and Contact Name, which matches them)
+  are also picked randomly from a small pool of generic test names on
+  every run, for the same reason. The policy number, insured name, and
+  claim amount(s) used are printed to the console at the start of each
+  case, so you can look the submission up afterward.
+- `--medical-amount 199.99` — override the medical claim's amount
+  (`--case medical` only; default `250.00`, which is the auto-approval
+  threshold — go above it if you specifically want to test the
+  above-threshold/manual-review path instead).
+- `--baggage-item-amount 50.00` — override the per-item claim amount for
+  *both* baggage items (`--case baggage` only; default `75.00` each,
+  `150.00` total, which is the max-limit test case).
+
+The `MEDICAL`/`BAGGAGE` policy-number label updates to match whatever
+amount is actually used (e.g. `--medical-amount 199.99` produces
+`...MEDICAL200...`, rounded to the nearest dollar since policy numbers
+are digits-only; `--baggage-item-amount 50.00` produces `...BAGGAGE100...`,
+i.e. the two-item total), so the label always reflects the real submitted
+amount rather than a fixed test-case name.
+- `--pdf-dir ./docs` — write the generated dummy upload PDFs somewhere
+  persistent instead of a temp directory (they're tiny, hand-built,
+  valid-but-empty PDFs — the portal only checks that *a* file was
+  provided).
+
+On failure, a full-page screenshot is saved to the system temp directory and
+its path is printed, to help diagnose what the portal looked like at the
+point of failure.
+
+## How it was built
+
+Every selector in this script (element ids, radio/checkbox value
+conventions, the MUI DatePicker/Autocomplete/multi-select-modal interaction
+patterns) was reverse-engineered by directly inspecting the live UAT
+portal's DOM through several full manual runs, not guessed from the visual
+layout. In particular:
+
+- All Yes/No radios follow the convention `<field>_opt_1` = Yes,
+  `<field>_opt_0` = No.
+- Every Claim Category's "Claim Type" field opens the same multi-select
+  modal (checkbox grid + Select All / Clear All / Close) — not a plain
+  dropdown, even for categories where it looks like one at a glance.
+- MUI X DatePicker/DateTimePicker fields are filled by clicking the
+  accessible `role="spinbutton"` "Day" (or "Hours") segment directly and
+  typing digits — MUI auto-advances between segments. The Travel Period
+  field holds two Day/Month/Year triplets sharing identical aria-labels
+  (From/To); they're disambiguated by position (`.nth(0)` / `.nth(1)`).
+- Supporting Documents file inputs are Uppy-generated with random
+  per-session names, so they're targeted by DOM order and filled directly
+  via Playwright's `set_input_files()`, which works on the hidden
+  `<input type="file">` without needing the styled dropzone to be clicked.
+
+## Caveats / things worth knowing
+
+- **Not validated end-to-end from this sandbox** — the environment this
+  script was written in has restricted network egress and can't reach the
+  UAT portal directly, so this script has not been run to completion here.
+  It was built from real, live-confirmed selectors (see above), but please
+  do a first run with `--no-submit --headed` and watch it before trusting
+  it for unattended/CI use.
+- If Merimen changes the portal's DOM structure or field set, selectors
+  here will need updating — this is the tradeoff for speed vs. the
+  Claude-skill approach, which reasons about the page visually each time
+  and adapts automatically.
+- The "Are you covered by the airline or other insurance policy for this
+  incident/loss?" question is always answered **No** in all three cases,
+  which skips the conditional "Amount Recovered" field. If you need a
+  scenario with Yes, you'll need to extend `fill_claim_details_common()`.
