@@ -105,16 +105,7 @@ def apply_styles() -> None:
         }
         .nav-strip a:hover { color: var(--ink); background: rgba(255,255,255,.035); }
         .nav-strip a.active { color: white; font-weight: 700; border-bottom-color: var(--lime); }
-        .metric-grid {
-            display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 11px;
-            padding: 26px 6px 0; margin-bottom: 16px;
-        }
-        .metric-tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-height: 84px; }
-        .metric-value { color: var(--ink); font-size: 29px; line-height: 1; font-weight: 800; letter-spacing: -.035em; }
-        .metric-value.cyan { color: var(--cyan); }
-        .metric-value.lime { color: var(--lime); }
-        .metric-label { color: var(--muted); font-size: 11.5px; margin-top: 7px; }
-        .page-heading { padding: 7px 6px 15px; }
+        .page-heading { padding: 26px 6px 15px; }
         .eyebrow { color: var(--lime); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
         .page-heading h1 { color: var(--ink); font-size: 25px; line-height: 1.1; letter-spacing: -.035em; margin: 5px 0 6px; }
         .page-heading p { color: var(--muted); font-size: 13px; margin: 0; }
@@ -153,14 +144,11 @@ def apply_styles() -> None:
         hr { border-color: var(--line) !important; }
         code { color: #dff5a5 !important; }
         [data-testid="stCaptionContainer"] { color: var(--muted); }
-        @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .header-right { display: none; } }
+        @media (max-width: 900px) { .header-right { display: none; } }
         @media (max-width: 640px) {
             .block-container { padding-left: 1rem; padding-right: 1rem; }
             .app-header { padding-left: 18px; padding-right: 18px; }
             .nav-strip { padding-left: 6px; padding-right: 6px; }
-            .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 0; padding-right: 0; }
-            .metric-tile { padding: 13px 14px; min-height: 75px; }
-            .metric-value { font-size: 24px; }
             .page-heading { padding-left: 0; padding-right: 0; }
             .page-heading h1 { font-size: 22px; }
         }
@@ -462,16 +450,6 @@ st.markdown(
       <a class="active" href="#run-test">Run a Test</a>
       <a href="#scenarios">Scenarios</a>
       <a href="#latest-run">Recent Runs</a>
-      <a href="#safety">Safety Notes</a>
-      <a href="#method">Method Notes</a>
-    </div>
-    <div class="metric-grid">
-      <div class="metric-tile"><div class="metric-value cyan">3</div><div class="metric-label">Test scenarios</div></div>
-      <div class="metric-tile"><div class="metric-value">6</div><div class="metric-label">Automated stages</div></div>
-      <div class="metric-tile"><div class="metric-value">10m</div><div class="metric-label">Maximum runtime</div></div>
-      <div class="metric-tile"><div class="metric-value">1</div><div class="metric-label">Concurrent browser</div></div>
-      <div class="metric-tile"><div class="metric-value">UAT</div><div class="metric-label">Target environment</div></div>
-      <div class="metric-tile"><div class="metric-value lime">Submit</div><div class="metric-label">Default final action</div></div>
     </div>
     <div class="page-heading" id="run-test">
       <div class="eyebrow">New test run</div>
