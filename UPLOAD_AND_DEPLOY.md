@@ -44,4 +44,8 @@ Do not upload a `.venv` folder, a local `secrets.toml`, browser downloads, logs,
 6. Confirm the **Live browser** panel refreshes as the script reaches each checkpoint.
 7. Review the private technical log and any failure screenshot.
 
+For flight-delay testing, the app now offers **AV222** and **SQ957**. SQ957
+uses a scheduled departure of 08/09/2026 at 9:00 PM and an actual departure
+of 09/09/2026 at 12:30 AM.
+
 The UI defaults to **Submit to UAT**, but the button stays disabled until the dummy-data/UAT checkbox is selected. Only use it after review mode has completed successfully and the team has reconfirmed that the portal is UAT.

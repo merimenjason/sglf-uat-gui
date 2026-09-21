@@ -137,8 +137,11 @@ playwright install chromium
 # Auto-approved medical expense claim (S$250)
 python singlife_travel_claim.py --case medical
 
-# Flight delay claim (AV222 / Colombia / 24 Feb 2026)
+# Flight delay claim (AV222 / Colombia / 24 Feb 2026; default)
 python singlife_travel_claim.py --case flight_delay
+
+# Flight delay claim (SQ957 / Singapore / 8–9 Sep 2026)
+python singlife_travel_claim.py --case flight_delay --flight SQ957
 
 # Baggage loss/damage, max limit (2 items x S$75)
 python singlife_travel_claim.py --case baggage
@@ -153,6 +156,9 @@ Useful flags:
   "Confirm" click on the final "Proceed to Submit?" dialog, so you can
   eyeball everything first. Combine with `--headed` to leave the browser
   open for inspection (press Enter in the terminal to close it).
+- `--flight SQ957` — use the SQ957 delayed-departure case, scheduled for
+  8 September 2026 at 9:00 PM and departing on 9 September 2026 at
+  12:30 AM. The default flight-delay case remains AV222.
 - `--policy-suffix SOMETHING` — appended to the dummy policy number, on
   top of the random 3-digit prefix every run already gets (e.g.
   `042MEDICAL250`) so repeat runs are distinguishable in the UAT system.

@@ -54,14 +54,27 @@ SCENARIOS = {
     "Flight delay": {
         "id": "flight_delay",
         "icon": "✈",
-        "description": "AV222 delay in Colombia",
-        "detail": "Fixed UAT test case",
+        "description": "AV222 or SQ957 delayed departure",
+        "detail": "Choose the flight after selecting this scenario",
     },
     "Baggage damage": {
         "id": "baggage",
         "icon": "▣",
         "description": "Two lost or damaged items",
         "detail": "Default: S$75.00 per item",
+    },
+}
+
+FLIGHT_OPTIONS = {
+    "AV222": {
+        "label": "AV222 · Colombia · 24/02/2026",
+        "scheduled": "24/02/2026 · 10:30 PM",
+        "actual": "25/02/2026 · 2:15 AM",
+    },
+    "SQ957": {
+        "label": "SQ957 · Singapore · 08/09/2026 → 09/09/2026",
+        "scheduled": "08/09/2026 · 9:00 PM",
+        "actual": "09/09/2026 · 12:30 AM",
     },
 }
 
@@ -182,6 +195,7 @@ def build_command(
     scenario: str,
     mode: str,
     suffix: str,
+    flight: str,
     medical_amount: float,
     baggage_amount: float,
     pdf_dir: Path,
@@ -201,6 +215,8 @@ def build_command(
         command.append("--no-submit")
     if scenario == "medical":
         command.extend(["--medical-amount", f"{medical_amount:.2f}"])
+    if scenario == "flight_delay":
+        command.extend(["--flight", flight])
     if scenario == "baggage":
         command.extend(["--baggage-item-amount", f"{baggage_amount:.2f}"])
     return command
@@ -211,6 +227,7 @@ def run_automation(
     scenario_label: str,
     mode: str,
     suffix: str,
+    flight: str,
     medical_amount: float,
     baggage_amount: float,
     live_preview_slot,
@@ -249,6 +266,7 @@ def run_automation(
                 scenario,
                 mode,
                 suffix,
+                flight,
                 medical_amount,
                 baggage_amount,
                 Path(pdf_temp),
@@ -487,6 +505,7 @@ with left:
         )
 
         scenario_id = selected["id"]
+        flight = "AV222"
         medical_amount = 250.0
         baggage_amount = 75.0
         if scenario_id == "medical":
@@ -506,6 +525,13 @@ with left:
                 value=75.0,
                 step=5.0,
                 format="%.2f",
+            )
+        elif scenario_id == "flight_delay":
+            flight = st.selectbox(
+                "Flight",
+                options=list(FLIGHT_OPTIONS),
+                format_func=lambda value: FLIGHT_OPTIONS[value]["label"],
+                help="Select the delayed-departure test case to submit.",
             )
 
         suffix = st.text_input(
@@ -551,7 +577,10 @@ with right:
         elif scenario_id == "baggage":
             st.write(f"**Amount:** 2 × S${baggage_amount:,.2f}")
         else:
-            st.write("**Flight:** AV222 · 24 Feb 2026")
+            selected_flight = FLIGHT_OPTIONS[flight]
+            st.write(f"**Flight:** {flight}")
+            st.write(f'**Scheduled departure:** {selected_flight["scheduled"]}')
+            st.write(f'**Actual departure:** {selected_flight["actual"]}')
         st.write(f"**Final action:** {'Stop for review' if mode == 'review' else 'Submit to UAT'}")
         st.write(f"**Policy suffix:** {suffix or 'None'}")
         st.markdown(
@@ -605,6 +634,7 @@ if run_clicked:
         scenario_label=scenario_label,
         mode=mode,
         suffix=suffix,
+        flight=flight,
         medical_amount=medical_amount,
         baggage_amount=baggage_amount,
         live_preview_slot=live_preview_slot,

@@ -17,6 +17,7 @@ require an explicit human confirmation before submitting.
 Usage:
     python singlife_travel_claim.py --case medical
     python singlife_travel_claim.py --case flight_delay
+    python singlife_travel_claim.py --case flight_delay --flight SQ957
     python singlife_travel_claim.py --case baggage
     python singlife_travel_claim.py --case medical --headed --slow-mo 150
     python singlife_travel_claim.py --case medical --no-submit   # fill but stop before Confirm
@@ -740,17 +741,51 @@ def run_medical_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_subm
     complete_declaration_and_submit(page, auto_submit=auto_submit)
 
 
-def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_submit: bool) -> None:
+FLIGHT_SCENARIOS: dict[str, dict[str, object]] = {
+    "AV222": {
+        "place": "El Dorado International Airport",
+        "country": "Colombia",
+        "description": "Flight AV222 was delayed, causing significant travel inconvenience.",
+        "accident_date": ("24", "02", "2026"),
+        "travel_from": ("24", "02", "2026"),
+        "travel_to": ("28", "02", "2026"),
+        "scheduled": ("24", "02", "2026", "10", "30", "PM"),
+        "actual": ("25", "02", "2026", "02", "15", "AM"),
+        "cause": "Technical/mechanical delay reported by airline.",
+    },
+    "SQ957": {
+        "place": "Singapore Changi Airport",
+        "country": "Singapore",
+        "description": "Flight SQ957 was delayed overnight, causing significant travel inconvenience.",
+        "accident_date": ("08", "09", "2026"),
+        "travel_from": ("08", "09", "2026"),
+        "travel_to": ("12", "09", "2026"),
+        "scheduled": ("08", "09", "2026", "09", "00", "PM"),
+        "actual": ("09", "09", "2026", "12", "30", "AM"),
+        "cause": "Technical/mechanical delay reported by airline.",
+    },
+}
+
+
+def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_submit: bool,
+                          flight: str = "AV222") -> None:
+    try:
+        scenario = FLIGHT_SCENARIOS[flight]
+    except KeyError:
+        raise ValueError(
+            f"Unknown flight scenario {flight!r}; choose one of {sorted(FLIGHT_SCENARIOS)}"
+        ) from None
+
     surname, given_name = _random_name()
-    policy = f"{_random_policy_prefix()}AV222DELAY{policy_suffix}"
-    print(f"Using policy number: {policy}  |  Insured: {given_name} {surname}")
+    policy = f"{_random_policy_prefix()}{flight}DELAY{policy_suffix}"
+    print(f"Using policy number: {policy}  |  Insured: {given_name} {surname}  |  Flight: {flight}")
     goto_and_start_claim(page)
     fill_basic_details(
         page,
         policy_no=policy,
-        accident_date=("24", "02", "2026"),
-        travel_from=("24", "02", "2026"),
-        travel_to=("28", "02", "2026"),
+        accident_date=scenario["accident_date"],
+        travel_from=scenario["travel_from"],
+        travel_to=scenario["travel_to"],
         contact_name=f"{given_name} {surname}",
         mobile_number="91234567",
     )
@@ -763,15 +798,17 @@ def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto
         postal_code="123456", country="Singapore",
     )
     fill_claim_details_common(
-        page, place="El Dorado International Airport", country="Colombia",
-        description="Flight AV222 was delayed, causing significant travel inconvenience.",
+        page,
+        place=scenario["place"],
+        country=scenario["country"],
+        description=scenario["description"],
     )
     fill_travel_inconvenience(
         page,
-        flight_number="AV222",
-        scheduled=("24", "02", "2026", "10", "30", "PM"),
-        actual=("25", "02", "2026", "02", "15", "AM"),
-        cause="Technical/mechanical delay reported by airline.",
+        flight_number=flight,
+        scheduled=scenario["scheduled"],
+        actual=scenario["actual"],
+        cause=scenario["cause"],
     )
     go_next_from_claim_details(page)
 
@@ -852,6 +889,7 @@ CASES = {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--case", choices=sorted(CASES), required=True, help="Which UAT test case to run")
+    parser.add_argument("--flight", choices=sorted(FLIGHT_SCENARIOS), default="AV222", help="Which flight-delay scenario to use (--case flight_delay only; default AV222)")
     parser.add_argument("--headed", action="store_true", help="Show the browser window")
     parser.add_argument("--slow-mo", type=int, default=0, help="Slow down each Playwright action by N ms")
     parser.add_argument("--no-submit", action="store_true", help="Fill the whole form but stop before clicking Confirm")
@@ -884,6 +922,8 @@ def main() -> int:
             run_kwargs = {"policy_suffix": args.policy_suffix, "auto_submit": not args.no_submit}
             if args.case == "medical":
                 run_kwargs["claim_amount"] = args.medical_amount
+            elif args.case == "flight_delay":
+                run_kwargs["flight"] = args.flight
             elif args.case == "baggage":
                 run_kwargs["item_amount"] = args.baggage_item_amount
             run_fn(page, pdf_dir, **run_kwargs)
