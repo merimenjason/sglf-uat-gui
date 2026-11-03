@@ -679,6 +679,11 @@ def _random_name() -> tuple[str, str]:
     return random.choice(_RANDOM_SURNAMES), random.choice(_RANDOM_GIVEN_NAMES)
 
 
+def _random_passport_number() -> str:
+    """Generate a dummy passport number in the existing S1234567A format."""
+    return f"S{random.randint(0, 9_999_999):07d}A"
+
+
 def _random_policy_prefix() -> str:
     """A random 3-digit prefix (e.g. "042") so repeat runs get distinct
     policy numbers -- combine with --policy-suffix if you also want a
@@ -716,7 +721,7 @@ def run_medical_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_subm
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number="S1234567A",
+        surname=surname, given_name=given_name, id_number=_random_passport_number(),
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",
@@ -791,7 +796,7 @@ def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number="S1234567A",
+        surname=surname, given_name=given_name, id_number=_random_passport_number(),
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",
@@ -840,7 +845,7 @@ def run_baggage_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_subm
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number="S1234567A",
+        surname=surname, given_name=given_name, id_number=_random_passport_number(),
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",

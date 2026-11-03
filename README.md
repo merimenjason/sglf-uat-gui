@@ -164,7 +164,9 @@ Useful flags:
   `042MEDICAL250`) so repeat runs are distinguishable in the UAT system.
   The insured's surname/given name (and Contact Name, which matches them)
   are also picked randomly from a small pool of generic test names on
-  every run, for the same reason. The policy number, insured name, and
+  every run, for the same reason. Each run also generates a random dummy
+  passport number in the existing `S` + seven digits + `A` format.
+  The policy number, insured name, and
   claim amount(s) used are printed to the console at the start of each
   case, so you can look the submission up afterward.
 - `--medical-amount 199.99` — override the medical claim's amount
