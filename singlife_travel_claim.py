@@ -16,6 +16,7 @@ require an explicit human confirmation before submitting.
 
 Usage:
     python singlife_travel_claim.py --case medical
+    python singlife_travel_claim.py --case medical --submit-twice
     python singlife_travel_claim.py --case flight_delay
     python singlife_travel_claim.py --case flight_delay --flight SQ957
     python singlife_travel_claim.py --case baggage
@@ -691,6 +692,19 @@ def _random_policy_prefix() -> str:
     return f"{random.randint(0, 999):03d}"
 
 
+@dataclass(frozen=True)
+class ClaimIdentity:
+    surname: str
+    given_name: str
+    policy_prefix: str
+    passport_number: str
+
+
+def _random_claim_identity() -> ClaimIdentity:
+    surname, given_name = _random_name()
+    return ClaimIdentity(surname, given_name, _random_policy_prefix(), _random_passport_number())
+
+
 def _amount_label(amount: str) -> str:
     """Round a "123.45"-style claim-amount string to a whole-number string
     for use in a policy number label (e.g. "250", "150") -- policy numbers
@@ -704,9 +718,10 @@ def _amount_label(amount: str) -> str:
 
 
 def run_medical_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_submit: bool,
-                      claim_amount: str = "250.00") -> None:
-    surname, given_name = _random_name()
-    policy = f"{_random_policy_prefix()}MEDICAL{_amount_label(claim_amount)}{policy_suffix}"
+                      claim_amount: str = "250.00", identity: Optional[ClaimIdentity] = None) -> None:
+    identity = identity or _random_claim_identity()
+    surname, given_name = identity.surname, identity.given_name
+    policy = f"{identity.policy_prefix}MEDICAL{_amount_label(claim_amount)}{policy_suffix}"
     print(f"Using policy number: {policy}  |  Insured: {given_name} {surname}  |  "
           f"Claim amount: S${claim_amount}")
     goto_and_start_claim(page)
@@ -721,7 +736,7 @@ def run_medical_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_subm
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number=_random_passport_number(),
+        surname=surname, given_name=given_name, id_number=identity.passport_number,
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",
@@ -773,7 +788,7 @@ FLIGHT_SCENARIOS: dict[str, dict[str, object]] = {
 
 
 def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_submit: bool,
-                          flight: str = "AV222") -> None:
+                          flight: str = "AV222", identity: Optional[ClaimIdentity] = None) -> None:
     try:
         scenario = FLIGHT_SCENARIOS[flight]
     except KeyError:
@@ -781,8 +796,9 @@ def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto
             f"Unknown flight scenario {flight!r}; choose one of {sorted(FLIGHT_SCENARIOS)}"
         ) from None
 
-    surname, given_name = _random_name()
-    policy = f"{_random_policy_prefix()}{flight}DELAY{policy_suffix}"
+    identity = identity or _random_claim_identity()
+    surname, given_name = identity.surname, identity.given_name
+    policy = f"{identity.policy_prefix}{flight}DELAY{policy_suffix}"
     print(f"Using policy number: {policy}  |  Insured: {given_name} {surname}  |  Flight: {flight}")
     goto_and_start_claim(page)
     fill_basic_details(
@@ -796,7 +812,7 @@ def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number=_random_passport_number(),
+        surname=surname, given_name=given_name, id_number=identity.passport_number,
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",
@@ -827,10 +843,11 @@ def run_flight_delay_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto
 
 
 def run_baggage_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_submit: bool,
-                      item_amount: str = "75.00") -> None:
-    surname, given_name = _random_name()
+                      item_amount: str = "75.00", identity: Optional[ClaimIdentity] = None) -> None:
+    identity = identity or _random_claim_identity()
+    surname, given_name = identity.surname, identity.given_name
     total_label = _amount_label(str(float(item_amount) * 2))
-    policy = f"{_random_policy_prefix()}BAGGAGE{total_label}{policy_suffix}"
+    policy = f"{identity.policy_prefix}BAGGAGE{total_label}{policy_suffix}"
     print(f"Using policy number: {policy}  |  Insured: {given_name} {surname}  |  "
           f"Item claim amount: S${item_amount} each")
     goto_and_start_claim(page)
@@ -845,7 +862,7 @@ def run_baggage_case(page: Page, pdf_dir: Path, *, policy_suffix: str, auto_subm
     )
     fill_insured_and_claimant(
         page,
-        surname=surname, given_name=given_name, id_number=_random_passport_number(),
+        surname=surname, given_name=given_name, id_number=identity.passport_number,
         nationality="Singapore", dob=("01", "01", "1990"), gender="Male",
         marital_status="Single", email="test@test.com",
         block_street_no="123", street_name="Test Street",
@@ -891,6 +908,47 @@ CASES = {
 # --------------------------------------------------------------------------
 
 
+def run_claims(browser, pdf_dir: Path, *, case: str, run_kwargs: dict,
+               submit_twice: bool = False, pause_for_review: bool = False) -> None:
+    """Run once, or submit the same claim twice in separate browser sessions.
+
+    Identity is generated once per run; scenario inputs and PDF contents are
+    reused. A failed attempt stops the run without retrying a submission.
+    """
+    auto_submit = run_kwargs["auto_submit"]
+    if submit_twice and not auto_submit:
+        raise ValueError("Submitting twice cannot be combined with review mode")
+
+    run_fn = CASES[case]
+    case_kwargs = {**run_kwargs, "identity": _random_claim_identity()}
+    total = 2 if submit_twice else 1
+    for attempt in range(1, total + 1):
+        with browser.new_context() as context:
+            page = context.new_page()
+            page.set_default_timeout(DEFAULT_TIMEOUT_MS)
+            try:
+                if auto_submit:
+                    print(f"Submission {attempt} of {total} started.", flush=True)
+                run_fn(page, pdf_dir, **case_kwargs)
+                if auto_submit:
+                    print(f"Submission {attempt} of {total} completed.", flush=True)
+            except Exception:
+                screenshot_path = Path(tempfile.gettempdir()) / f"singlife_uat_failure_{time.time_ns()}.png"
+                try:
+                    page.screenshot(path=str(screenshot_path), full_page=True)
+                    print(f"Failure screenshot saved to {screenshot_path}", file=sys.stderr, flush=True)
+                except Exception:
+                    pass
+                raise
+            finally:
+                if pause_for_review and not auto_submit:
+                    print("Leaving browser open for inspection (--no-submit --headed). Press Enter to close.")
+                    try:
+                        input()
+                    except EOFError:
+                        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--case", choices=sorted(CASES), required=True, help="Which UAT test case to run")
@@ -898,11 +956,14 @@ def main() -> int:
     parser.add_argument("--headed", action="store_true", help="Show the browser window")
     parser.add_argument("--slow-mo", type=int, default=0, help="Slow down each Playwright action by N ms")
     parser.add_argument("--no-submit", action="store_true", help="Fill the whole form but stop before clicking Confirm")
+    parser.add_argument("--submit-twice", action="store_true", help="Submit the exact same dummy claim twice, reusing its policy, passport, and all claim details")
     parser.add_argument("--policy-suffix", default="", help="Suffix appended to the dummy policy number, e.g. to make repeat runs distinguishable")
     parser.add_argument("--pdf-dir", default=None, help="Directory to write dummy upload PDFs into (default: a temp dir)")
     parser.add_argument("--medical-amount", default="250.00", help="Override the medical claim amount (--case medical only; default 250.00)")
     parser.add_argument("--baggage-item-amount", default="75.00", help="Override the per-item claim amount for both baggage items (--case baggage only; default 75.00)")
     args = parser.parse_args()
+    if args.submit_twice and args.no_submit:
+        parser.error("--submit-twice cannot be combined with --no-submit")
 
     if "clientportaluat.merimen.com" not in BASE_URL:
         print("Refusing to run: BASE_URL is not the UAT host.", file=sys.stderr)
@@ -920,10 +981,7 @@ def main() -> int:
         if chromium_executable:
             launch_options["executable_path"] = chromium_executable
         browser = p.chromium.launch(**launch_options)
-        page = browser.new_page()
-        page.set_default_timeout(DEFAULT_TIMEOUT_MS)
         try:
-            run_fn = CASES[args.case]
             run_kwargs = {"policy_suffix": args.policy_suffix, "auto_submit": not args.no_submit}
             if args.case == "medical":
                 run_kwargs["claim_amount"] = args.medical_amount
@@ -931,22 +989,9 @@ def main() -> int:
                 run_kwargs["flight"] = args.flight
             elif args.case == "baggage":
                 run_kwargs["item_amount"] = args.baggage_item_amount
-            run_fn(page, pdf_dir, **run_kwargs)
-        except Exception:
-            screenshot_path = Path(tempfile.gettempdir()) / f"singlife_uat_failure_{int(time.time())}.png"
-            try:
-                page.screenshot(path=str(screenshot_path), full_page=True)
-                print(f"Failure screenshot saved to {screenshot_path}", file=sys.stderr)
-            except Exception:
-                pass
-            raise
+            run_claims(browser, pdf_dir, case=args.case, run_kwargs=run_kwargs,
+                       submit_twice=args.submit_twice, pause_for_review=args.headed)
         finally:
-            if args.no_submit and args.headed:
-                print("Leaving browser open for inspection (--no-submit --headed). Press Enter to close.")
-                try:
-                    input()
-                except EOFError:
-                    pass
             browser.close()
 
     return 0

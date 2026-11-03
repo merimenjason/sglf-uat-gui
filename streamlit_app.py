@@ -29,6 +29,7 @@ RUN_TIMEOUT_SECONDS = 10 * 60
 POLICY_PATTERN = re.compile(r"Using policy number:\s*([^\s|]+)")
 SCREENSHOT_PATTERN = re.compile(r"Failure screenshot saved to\s+(.+)$")
 LIVE_SCREENSHOT_PATTERN = re.compile(r"Live screenshot:\s*(.+)$")
+SUBMISSION_COMPLETED_PATTERN = re.compile(r"^Submission (\d+) of (\d+) completed\.$")
 
 
 class RunResult(TypedDict):
@@ -42,6 +43,8 @@ class RunResult(TypedDict):
     live_screenshot: bytes | None
     live_stage: str | None
     message: str
+    submissions_requested: int
+    submissions_completed: int
 
 
 SCENARIOS = {
@@ -199,7 +202,10 @@ def build_command(
     medical_amount: float,
     baggage_amount: float,
     pdf_dir: Path,
+    submit_twice: bool = False,
 ) -> list[str]:
+    if submit_twice and mode != "submit":
+        raise ValueError("Submitting twice is available only in submit mode")
     command = [
         sys.executable,
         "-u",
@@ -213,6 +219,8 @@ def build_command(
     ]
     if mode == "review":
         command.append("--no-submit")
+    if submit_twice:
+        command.append("--submit-twice")
     if scenario == "medical":
         command.extend(["--medical-amount", f"{medical_amount:.2f}"])
     if scenario == "flight_delay":
@@ -232,6 +240,7 @@ def run_automation(
     baggage_amount: float,
     live_preview_slot,
     run_status_slot,
+    submit_twice: bool = False,
 ) -> RunResult:
     started = time.monotonic()
     logs: deque[str] = deque(maxlen=250)
@@ -239,7 +248,26 @@ def run_automation(
     screenshot_path: str | None = None
     live_screenshot: bytes | None = None
     live_stage: str | None = None
+    submissions_requested = 0 if mode == "review" else (2 if submit_twice else 1)
+    submissions_completed = 0
+    timeout_seconds = RUN_TIMEOUT_SECONDS * max(1, submissions_requested)
     lock_path = Path(tempfile.gettempdir()) / "singlife_uat_streamlit.lock"
+
+    def record_log(line: str) -> None:
+        nonlocal policy, screenshot_path, live_stage, submissions_completed
+        logs.append(line)
+        policy_match = POLICY_PATTERN.search(line)
+        if policy_match:
+            policy = policy_match.group(1)
+        screenshot_match = SCREENSHOT_PATTERN.search(line)
+        if screenshot_match:
+            screenshot_path = screenshot_match.group(1).strip()
+        live_match = LIVE_SCREENSHOT_PATTERN.search(line)
+        if live_match:
+            live_stage = live_match.group(1).strip()
+        completion = SUBMISSION_COMPLETED_PATTERN.fullmatch(line)
+        if completion and int(completion.group(2)) == submissions_requested:
+            submissions_completed = max(submissions_completed, int(completion.group(1)))
 
     with lock_path.open("w") as lock_file:
         if fcntl is not None:
@@ -257,6 +285,8 @@ def run_automation(
                     "live_screenshot": None,
                     "live_stage": None,
                     "message": "Another UAT claim is already running. Please wait for it to finish.",
+                    "submissions_requested": submissions_requested,
+                    "submissions_completed": 0,
                 }
 
         with tempfile.TemporaryDirectory(prefix="singlife_streamlit_docs_") as pdf_temp:
@@ -270,6 +300,7 @@ def run_automation(
                 medical_amount,
                 baggage_amount,
                 Path(pdf_temp),
+                submit_twice=submit_twice,
             )
             environment = os.environ.copy()
             environment["PYTHONUNBUFFERED"] = "1"
@@ -298,13 +329,14 @@ def run_automation(
 
                 timed_out = False
                 while True:
-                    if time.monotonic() - started > RUN_TIMEOUT_SECONDS:
+                    if time.monotonic() - started > timeout_seconds:
                         timed_out = True
                         process.terminate()
                         try:
                             process.wait(timeout=5)
                         except subprocess.TimeoutExpired:
                             process.kill()
+                            process.wait()
                         break
 
                     events = selector.select(timeout=0.25)
@@ -313,19 +345,9 @@ def run_automation(
                         if not line:
                             continue
                         clean_line = line.rstrip()
-                        logs.append(clean_line)
+                        record_log(clean_line)
                         live_line.caption(clean_line)
                         progress.progress(55, text="Completing the claim form in Merimen UAT")
-
-                        policy_match = POLICY_PATTERN.search(clean_line)
-                        if policy_match:
-                            policy = policy_match.group(1)
-                        screenshot_match = SCREENSHOT_PATTERN.search(clean_line)
-                        if screenshot_match:
-                            screenshot_path = screenshot_match.group(1).strip()
-                        live_match = LIVE_SCREENSHOT_PATTERN.search(clean_line)
-                        if live_match:
-                            live_stage = live_match.group(1).strip()
 
                     try:
                         current_mtime = live_screenshot_path.stat().st_mtime_ns
@@ -344,19 +366,12 @@ def run_automation(
                         pass
 
                     if process.poll() is not None:
-                        remaining = process.stdout.read()
-                        for line in remaining.splitlines():
-                            logs.append(line)
-                            policy_match = POLICY_PATTERN.search(line)
-                            if policy_match:
-                                policy = policy_match.group(1)
-                            screenshot_match = SCREENSHOT_PATTERN.search(line)
-                            if screenshot_match:
-                                screenshot_path = screenshot_match.group(1).strip()
-                            live_match = LIVE_SCREENSHOT_PATTERN.search(line)
-                            if live_match:
-                                live_stage = live_match.group(1).strip()
                         break
+
+                for line in process.stdout.read().splitlines():
+                    record_log(line)
+                selector.close()
+                process.stdout.close()
 
                 try:
                     final_candidate = live_screenshot_path.read_bytes()
@@ -367,13 +382,13 @@ def run_automation(
 
                 elapsed = time.monotonic() - started
                 if timed_out:
-                    progress.progress(100, text="Run stopped after the ten-minute limit")
+                    progress.progress(100, text=f"Run stopped after the {timeout_seconds // 60}-minute limit")
                     status_panel.update(label="The UAT run timed out", state="error", expanded=True)
                     result_status = "failed"
-                    message = "The run exceeded ten minutes and was stopped."
-                elif process.returncode == 0:
+                    message = f"The run exceeded {timeout_seconds // 60} minutes and was stopped."
+                elif process.returncode == 0 and submissions_completed == submissions_requested:
                     result_status = "prepared" if mode == "review" else "submitted"
-                    progress.progress(100, text="Review prepared" if mode == "review" else "UAT claim submitted")
+                    progress.progress(100, text="Review prepared" if mode == "review" else "UAT submission completed")
                     status_panel.update(
                         label="Ready for review" if mode == "review" else "UAT submission completed",
                         state="complete",
@@ -382,13 +397,16 @@ def run_automation(
                     message = (
                         "The form reached the final confirmation point without submitting."
                         if mode == "review"
-                        else "The dummy claim was submitted to Merimen UAT."
+                        else ("The exact same dummy claim was submitted twice to Merimen UAT."
+                              if submit_twice else "The dummy claim was submitted to Merimen UAT.")
                     )
                 else:
                     result_status = "failed"
                     progress.progress(100, text="Run stopped with an error")
                     status_panel.update(label="The UAT run failed", state="error", expanded=True)
                     message = "The browser automation stopped before completing the requested run."
+                if mode == "submit":
+                    message += f" {submissions_completed} of {submissions_requested} submissions completed."
 
     return {
         "status": result_status,
@@ -401,6 +419,8 @@ def run_automation(
         "live_screenshot": live_screenshot,
         "live_stage": live_stage,
         "message": message,
+        "submissions_requested": submissions_requested,
+        "submissions_completed": submissions_completed,
     }
 
 
@@ -423,6 +443,8 @@ def render_result(result: RunResult) -> None:
     columns[2].metric("Duration", f'{result["elapsed"]:.0f}s')
     if result["policy"]:
         st.code(result["policy"], language=None)
+    if result.get("submissions_requested", 0):
+        st.caption(f'Submissions completed: {result["submissions_completed"]} of {result["submissions_requested"]}')
 
     screenshot = result.get("screenshot_path")
     if screenshot and Path(screenshot).is_file():
@@ -553,8 +575,15 @@ with left:
             help="Review mode fills the form and stops at the final confirmation dialog.",
         )
         mode = "review" if mode_label.startswith("Review") else "submit"
+        submit_twice = False
         confirmed = True
         if mode == "submit":
+            submit_twice = st.checkbox(
+                "Submit the exact same claim twice",
+                value=False,
+                help="Runs two submissions in sequence with the same policy number, passport, "
+                     "insured name, claim details, and documents. Stops if either attempt fails.",
+            )
             confirmed = st.checkbox(
                 "I confirm this uses dummy data and the destination is Merimen UAT.",
                 value=False,
@@ -562,7 +591,9 @@ with left:
 
         run_disabled = not suffix_valid or not confirmed
         run_clicked = st.button(
-            "Prepare review" if mode == "review" else "Submit dummy UAT claim",
+            "Prepare review" if mode == "review" else (
+                "Submit same UAT claim twice" if submit_twice else "Submit dummy UAT claim"
+            ),
             type="primary",
             use_container_width=True,
             disabled=run_disabled,
@@ -582,6 +613,8 @@ with right:
             st.write(f'**Scheduled departure:** {selected_flight["scheduled"]}')
             st.write(f'**Actual departure:** {selected_flight["actual"]}')
         st.write(f"**Final action:** {'Stop for review' if mode == 'review' else 'Submit to UAT'}")
+        if mode == "submit":
+            st.write(f"**Submissions:** {'2 identical claims' if submit_twice else '1 claim'}")
         st.write(f"**Policy suffix:** {suffix or 'None'}")
         st.markdown(
             '<div class="safe-note" id="safety"><strong>Safety boundary</strong><br>'
@@ -594,7 +627,7 @@ with right:
         detected_chromium = find_chromium()
         st.write("✅ Automation script included")
         st.write("✅ One run at a time")
-        st.write("✅ Ten-minute timeout")
+        st.write("✅ Twenty-minute timeout" if submit_twice else "✅ Ten-minute timeout")
         st.write("✅ Chromium available" if detected_chromium else "ℹ️ Chromium is installed during cloud deployment")
 
         st.divider()
@@ -639,6 +672,7 @@ if run_clicked:
         baggage_amount=baggage_amount,
         live_preview_slot=live_preview_slot,
         run_status_slot=run_status_slot,
+        submit_twice=submit_twice,
     )
     st.session_state["last_result"] = result
     history = st.session_state.setdefault("run_history", [])
