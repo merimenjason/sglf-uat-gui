@@ -48,6 +48,35 @@ streamlit run streamlit_app.py
 
 Open the local URL printed by Streamlit. The app does not execute Playwright until a user presses the run button.
 
+## Submit the same claim twice
+
+Choose a scenario and **Submit to UAT**, then tick **Submit the exact same
+claim twice**. After the existing dummy-data confirmation, click **Submit
+same UAT claim twice**.
+
+The runner generates one claim identity and submits the same policy number,
+passport number, insured/contact name, dates, amounts, claim details, and
+dummy documents twice in sequence. Each attempt uses a fresh browser session.
+A separate run generates a new identity as usual. This option is available
+for medical, baggage, and both flight-delay choices.
+
+The result shows how many submissions completed. If either attempt fails
+(including a duplicate rejection by the portal), the run stops and captures
+the failure; it does not retry. A failure on the second attempt leaves the
+first submission in UAT. Review mode continues to prepare just one form.
+
+The same feature is available from the CLI:
+
+```bash
+python singlife_travel_claim.py --case medical --submit-twice
+python singlife_travel_claim.py --case flight_delay --flight SQ957 --submit-twice
+```
+
+`--submit-twice` cannot be combined with `--no-submit`.
+
+Run the regression checks locally with `python -m unittest discover -s tests -v`.
+They mock the browser and portal responses; they do not submit UAT claims.
+
 ## Built-in safety controls
 
 - **Submit to UAT** is selected by default, as requested, but remains disabled until the user checks the separate dummy-data/UAT confirmation.
@@ -56,7 +85,7 @@ Open the local URL printed by Streamlit. The app does not execute Playwright unt
 - Only the three packaged scenarios are accepted.
 - Policy suffixes accept only letters, numbers, and hyphens.
 - Only one claim can run at a time across app sessions.
-- Each run stops after ten minutes.
+- Each run stops after ten minutes, or twenty minutes for two submissions.
 - The automation is launched with an argument list rather than a shell command.
 - A private live-browser panel refreshes from atomic viewport screenshots at six meaningful Playwright checkpoints.
 - The last live checkpoint remains visible with the run result; failure screenshots can be downloaded when available.
