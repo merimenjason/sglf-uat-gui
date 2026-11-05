@@ -587,15 +587,87 @@ def upload_supporting_documents(page: Page, dummy_pdf_paths: list[Path]) -> None
     if count == 0:
         raise RuntimeError("No file upload inputs found on Supporting Documents step")
 
-    for i in range(count):
-        pdf = dummy_pdf_paths[i % len(dummy_pdf_paths)]
-        file_inputs.nth(i).set_input_files(str(pdf))
-        # Give the Uppy widget a brief moment to register + show the
-        # "Files uploaded" state before moving to the next slot.
-        page.wait_for_timeout(400)
+    slots = [_UploadSlot(page, file_inputs.nth(i), dummy_pdf_paths[i % len(dummy_pdf_paths)])
+             for i in range(count)]
+    for slot in slots:
+        slot.add_file()
+
+    # Confirmed live: when the portal's upload endpoint has a network
+    # failure, Uppy retries internally, then shows a red "This looks like a
+    # network error" alert and the field stays empty -- so clicking Next
+    # leaves the wizard stuck on this step. Wait for every slot to report
+    # success, and re-upload any that failed. Nothing has been submitted yet,
+    # so retrying here cannot create a duplicate claim.
+    for round_number in range(UPLOAD_RETRY_ROUNDS + 1):
+        failed = [slot for slot in slots if slot.wait_for_result() == "error"]
+        if not failed:
+            break
+        if round_number == UPLOAD_RETRY_ROUNDS:
+            raise RuntimeError(
+                f"Document upload failed for {len(failed)} of {len(slots)} files after "
+                f"{UPLOAD_RETRY_ROUNDS} retries: {failed[0].error_text()}"
+            )
+        delay_s = UPLOAD_RETRY_DELAYS_S[round_number]
+        print(f"Upload failed for {len(failed)} of {len(slots)} files; "
+              f"retrying in {delay_s}s (retry {round_number + 1} of {UPLOAD_RETRY_ROUNDS}).", flush=True)
+        page.wait_for_timeout(delay_s * 1000)
+        for slot in failed:
+            slot.remove_file()
+            slot.add_file()
 
     capture_live_screenshot(page, "documents_uploaded")
     click_visible_button(page, "Next")
+
+
+UPLOAD_RESULT_TIMEOUT_MS = 60_000
+UPLOAD_RETRY_ROUNDS = 3
+UPLOAD_RETRY_DELAYS_S = (5, 15, 30)
+
+
+class _UploadSlot:
+    """One Supporting Documents field: its hidden file input plus the
+    MUI FormControl wrapping the file card and status alert.
+
+    Confirmed live: a successful upload shows an info alert reading
+    "Files uploaded"; a failed one shows an error-coloured alert. Re-adding
+    the same file is rejected as a duplicate, so a failed file must first be
+    removed with its X (`button.uploaderDocumentCancel`).
+    """
+
+    def __init__(self, page: Page, file_input, pdf: Path):
+        self.page = page
+        self.file_input = file_input
+        self.pdf = pdf
+        self.field = file_input.locator("xpath=ancestor::div[contains(@class, 'MuiFormControl-root')][1]")
+
+    def add_file(self) -> None:
+        self.file_input.set_input_files(str(self.pdf))
+
+    def remove_file(self) -> None:
+        cancel = self.field.locator("button.uploaderDocumentCancel")
+        if cancel.count():
+            cancel.first.click()
+            cancel.first.wait_for(state="detached", timeout=DEFAULT_TIMEOUT_MS)
+        # Confirmed live: the old error alert stays on screen after removal
+        # and is only replaced once the file is re-added and the new upload
+        # settles. Mark it stale so wait_for_result() ignores it.
+        self.field.evaluate(
+            "f => f.querySelectorAll('[role=alert]').forEach(a => a.dataset.uploadStale = '1')"
+        )
+
+    def _current(self, selector: str):
+        return self.field.locator(f"{selector}:not([data-upload-stale])")
+
+    def error_text(self) -> str:
+        alert = self._current(".MuiAlert-colorError")
+        return alert.first.inner_text().strip() if alert.count() else "unknown upload error"
+
+    def wait_for_result(self) -> str:
+        """Return "ok" or "error" once the field settles."""
+        uploaded = self._current("[role=alert]").filter(has_text="Files uploaded")
+        failed = self._current(".MuiAlert-colorError")
+        uploaded.or_(failed).first.wait_for(state="visible", timeout=UPLOAD_RESULT_TIMEOUT_MS)
+        return "ok" if uploaded.count() else "error"
 
 
 def complete_declaration_and_submit(page: Page, *, auto_submit: bool = True) -> None:

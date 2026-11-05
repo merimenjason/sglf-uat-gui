@@ -93,6 +93,16 @@ They mock the browser and portal responses; they do not submit UAT claims.
 - The last live checkpoint remains visible with the run result; failure screenshots can be downloaded when available.
 - Recent-run history exists only in the current Streamlit session.
 
+## Document upload retries
+
+After adding the dummy PDFs, the script waits for each upload field to show
+"Files uploaded". If the portal's upload endpoint reports a network error,
+it removes the failed files and uploads them again, up to three times
+(after 5, 15 and 30 seconds). Nothing has been submitted at this point, so a
+retry cannot create a duplicate claim. If uploads still fail, the run stops
+with "Document upload failed for N of M files…" rather than a timeout on
+the next step.
+
 ## Cloud limitations
 
 - If Merimen UAT uses an outbound-IP allowlist, Streamlit Community Cloud may not be able to reach it because its egress IP is not intended to be a fixed corporate address.
