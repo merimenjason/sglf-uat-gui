@@ -48,31 +48,32 @@ streamlit run streamlit_app.py
 
 Open the local URL printed by Streamlit. The app does not execute Playwright until a user presses the run button.
 
-## Submit the same claim twice
+## Submit the same claim multiple times
 
-Choose a scenario and **Submit to UAT**, then tick **Submit the exact same
-claim twice**. After the existing dummy-data confirmation, click **Submit
-same UAT claim twice**.
+Choose a scenario and **Submit to UAT**, then set **Number of identical
+submissions** (1–10; default 1). After the existing dummy-data confirmation,
+click **Submit same UAT claim N times**.
 
 The runner generates one claim identity and submits the same policy number,
 passport number, insured/contact name, dates, amounts, claim details, and
-dummy documents twice in sequence. Each attempt uses a fresh browser session.
+dummy documents N times in sequence. Each attempt uses a fresh browser session.
 A separate run generates a new identity as usual. This option is available
 for medical, baggage, and both flight-delay choices.
 
-The result shows how many submissions completed. If either attempt fails
+The result shows how many submissions completed. If any attempt fails
 (including a duplicate rejection by the portal), the run stops and captures
-the failure; it does not retry. A failure on the second attempt leaves the
-first submission in UAT. Review mode continues to prepare just one form.
+the failure; it does not retry. Submissions that completed before the failure
+stay in UAT. Review mode continues to prepare just one form.
 
 The same feature is available from the CLI:
 
 ```bash
-python singlife_travel_claim.py --case medical --submit-twice
-python singlife_travel_claim.py --case flight_delay --flight SQ957 --submit-twice
+python singlife_travel_claim.py --case medical --submit-count 3
+python singlife_travel_claim.py --case flight_delay --flight SQ957 --submit-count 2
 ```
 
-`--submit-twice` cannot be combined with `--no-submit`.
+`--submit-count` must be between 1 and 10, and a value above 1 cannot be
+combined with `--no-submit`.
 
 Run the regression checks locally with `python -m unittest discover -s tests -v`.
 They mock the browser and portal responses; they do not submit UAT claims.
@@ -85,7 +86,8 @@ They mock the browser and portal responses; they do not submit UAT claims.
 - Only the three packaged scenarios are accepted.
 - Policy suffixes accept only letters, numbers, and hyphens.
 - Only one claim can run at a time across app sessions.
-- Each run stops after ten minutes, or twenty minutes for two submissions.
+- Each run stops after ten minutes per requested submission (for example, thirty minutes for three).
+- A single run can submit the same claim at most ten times.
 - The automation is launched with an argument list rather than a shell command.
 - A private live-browser panel refreshes from atomic viewport screenshots at six meaningful Playwright checkpoints.
 - The last live checkpoint remains visible with the run result; failure screenshots can be downloaded when available.

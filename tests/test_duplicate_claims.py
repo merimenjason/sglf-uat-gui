@@ -58,7 +58,7 @@ class DuplicateClaimTests(unittest.TestCase):
                 browser, contexts = self.browser()
                 output = stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
                 automation.run_claims(
-                    browser, directory, case=case, submit_twice=True,
+                    browser, directory, case=case, submit_count=2,
                     run_kwargs={"policy_suffix": "DUP-42", "auto_submit": True, **options},
                 )
                 self.assertEqual(len(calls), 2)
@@ -98,7 +98,7 @@ class DuplicateClaimTests(unittest.TestCase):
                 ) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
                     with self.assertRaisesRegex(RuntimeError, "Portal refused"):
                         automation.run_claims(
-                            browser, Path("."), case="medical", submit_twice=True,
+                            browser, Path("."), case="medical", submit_count=2,
                             run_kwargs={"auto_submit": True},
                         )
                 self.assertEqual(case.call_count, failure_at)
@@ -108,6 +108,44 @@ class DuplicateClaimTests(unittest.TestCase):
                 contexts[-1].new_page.return_value.screenshot.assert_called_once()
                 for context in contexts:
                     context.__exit__.assert_called_once()
+
+    def test_submit_count_runs_that_many_identical_attempts(self):
+        browser, contexts = self.browser()
+        case = MagicMock()
+        with patch.dict(automation.CASES, medical=case), patch.object(
+            automation, "_random_claim_identity", wraps=automation._random_claim_identity,
+        ) as identity, contextlib.redirect_stdout(io.StringIO()) as output:
+            automation.run_claims(
+                browser, Path("."), case="medical", submit_count=4,
+                run_kwargs={"auto_submit": True},
+            )
+        self.assertEqual(case.call_count, 4)
+        self.assertEqual(len(contexts), 4)
+        identity.assert_called_once()
+        self.assertEqual(len({id(call.kwargs["identity"]) for call in case.call_args_list}), 1)
+        for attempt in range(1, 5):
+            self.assertIn(f"Submission {attempt} of 4 completed.", output.getvalue())
+
+    def test_out_of_range_submit_count_is_rejected_before_opening_a_browser_context(self):
+        for count in (0, -1, automation.MAX_SUBMIT_COUNT + 1):
+            with self.subTest(count=count):
+                browser, _ = self.browser()
+                with self.assertRaises(ValueError):
+                    automation.run_claims(
+                        browser, Path("."), case="medical", submit_count=count,
+                        run_kwargs={"auto_submit": True},
+                    )
+                browser.new_context.assert_not_called()
+
+    def test_cli_rejects_out_of_range_submit_count(self):
+        for count in ("0", str(automation.MAX_SUBMIT_COUNT + 1)):
+            with self.subTest(count=count), patch(
+                "sys.argv", ["claim", "--case", "medical", "--submit-count", count],
+            ), patch.object(automation, "sync_playwright") as playwright, contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    automation.main()
+            self.assertEqual(error.exception.code, 2)
+            playwright.assert_not_called()
 
     def test_review_prepares_once_without_reporting_a_submission(self):
         browser, contexts = self.browser()
@@ -124,13 +162,13 @@ class DuplicateClaimTests(unittest.TestCase):
         browser, _ = self.browser()
         with self.assertRaises(ValueError):
             automation.run_claims(
-                browser, Path("."), case="medical", submit_twice=True,
+                browser, Path("."), case="medical", submit_count=2,
                 run_kwargs={"auto_submit": False},
             )
         browser.new_context.assert_not_called()
 
-    def test_cli_rejects_submit_twice_with_no_submit(self):
-        with patch("sys.argv", ["claim", "--case", "medical", "--submit-twice", "--no-submit"]), patch.object(
+    def test_cli_rejects_multiple_submissions_with_no_submit(self):
+        with patch("sys.argv", ["claim", "--case", "medical", "--submit-count", "2", "--no-submit"]), patch.object(
             automation, "sync_playwright",
         ) as playwright, contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as error:
@@ -139,13 +177,13 @@ class DuplicateClaimTests(unittest.TestCase):
         playwright.assert_not_called()
 
     def test_cli_forwards_duplicate_options_and_closes_browser_on_failure(self):
-        arguments = ["claim", "--case", "flight_delay", "--flight", "SQ957", "--submit-twice"]
+        arguments = ["claim", "--case", "flight_delay", "--flight", "SQ957", "--submit-count", "3"]
         with patch("sys.argv", arguments), patch.object(automation, "sync_playwright") as playwright, patch.object(
             automation, "run_claims", side_effect=RuntimeError("Submission failed"),
         ) as runner:
             with self.assertRaisesRegex(RuntimeError, "Submission failed"):
                 automation.main()
-        self.assertTrue(runner.call_args.kwargs["submit_twice"])
+        self.assertEqual(runner.call_args.kwargs["submit_count"], 3)
         self.assertEqual(runner.call_args.kwargs["run_kwargs"]["flight"], "SQ957")
         playwright.return_value.__enter__.return_value.chromium.launch.return_value.close.assert_called_once()
 

@@ -26,6 +26,8 @@ APP_DIR = Path(__file__).resolve().parent
 AUTOMATION_SCRIPT = APP_DIR / "singlife_travel_claim.py"
 FAVICON_PATH = APP_DIR / "assets" / "favicon.png"
 RUN_TIMEOUT_SECONDS = 10 * 60
+# Keep in sync with MAX_SUBMIT_COUNT in singlife_travel_claim.py.
+MAX_SUBMIT_COUNT = 10
 POLICY_PATTERN = re.compile(r"Using policy number:\s*([^\s|]+)")
 SCREENSHOT_PATTERN = re.compile(r"Failure screenshot saved to\s+(.+)$")
 LIVE_SCREENSHOT_PATTERN = re.compile(r"Live screenshot:\s*(.+)$")
@@ -202,10 +204,12 @@ def build_command(
     medical_amount: float,
     baggage_amount: float,
     pdf_dir: Path,
-    submit_twice: bool = False,
+    submit_count: int = 1,
 ) -> list[str]:
-    if submit_twice and mode != "submit":
-        raise ValueError("Submitting twice is available only in submit mode")
+    if not 1 <= submit_count <= MAX_SUBMIT_COUNT:
+        raise ValueError(f"Submission count must be between 1 and {MAX_SUBMIT_COUNT}")
+    if submit_count > 1 and mode != "submit":
+        raise ValueError("Submitting more than once is available only in submit mode")
     command = [
         sys.executable,
         "-u",
@@ -219,8 +223,8 @@ def build_command(
     ]
     if mode == "review":
         command.append("--no-submit")
-    if submit_twice:
-        command.append("--submit-twice")
+    if submit_count > 1:
+        command.extend(["--submit-count", str(submit_count)])
     if scenario == "medical":
         command.extend(["--medical-amount", f"{medical_amount:.2f}"])
     if scenario == "flight_delay":
@@ -240,7 +244,7 @@ def run_automation(
     baggage_amount: float,
     live_preview_slot,
     run_status_slot,
-    submit_twice: bool = False,
+    submit_count: int = 1,
 ) -> RunResult:
     started = time.monotonic()
     logs: deque[str] = deque(maxlen=250)
@@ -248,7 +252,7 @@ def run_automation(
     screenshot_path: str | None = None
     live_screenshot: bytes | None = None
     live_stage: str | None = None
-    submissions_requested = 0 if mode == "review" else (2 if submit_twice else 1)
+    submissions_requested = 0 if mode == "review" else submit_count
     submissions_completed = 0
     timeout_seconds = RUN_TIMEOUT_SECONDS * max(1, submissions_requested)
     lock_path = Path(tempfile.gettempdir()) / "singlife_uat_streamlit.lock"
@@ -300,7 +304,7 @@ def run_automation(
                 medical_amount,
                 baggage_amount,
                 Path(pdf_temp),
-                submit_twice=submit_twice,
+                submit_count=submit_count,
             )
             environment = os.environ.copy()
             environment["PYTHONUNBUFFERED"] = "1"
@@ -397,8 +401,8 @@ def run_automation(
                     message = (
                         "The form reached the final confirmation point without submitting."
                         if mode == "review"
-                        else ("The exact same dummy claim was submitted twice to Merimen UAT."
-                              if submit_twice else "The dummy claim was submitted to Merimen UAT.")
+                        else (f"The exact same dummy claim was submitted {submit_count} times to Merimen UAT."
+                              if submit_count > 1 else "The dummy claim was submitted to Merimen UAT.")
                     )
                 else:
                     result_status = "failed"
@@ -575,15 +579,19 @@ with left:
             help="Review mode fills the form and stops at the final confirmation dialog.",
         )
         mode = "review" if mode_label.startswith("Review") else "submit"
-        submit_twice = False
+        submit_count = 1
         confirmed = True
         if mode == "submit":
-            submit_twice = st.checkbox(
-                "Submit the exact same claim twice",
-                value=False,
-                help="Runs two submissions in sequence with the same policy number, passport, "
-                     "insured name, claim details, and documents. Stops if either attempt fails.",
-            )
+            submit_count = int(st.number_input(
+                "Number of identical submissions",
+                min_value=1,
+                max_value=MAX_SUBMIT_COUNT,
+                value=1,
+                step=1,
+                key="submit_count",
+                help="Submits the same claim this many times in sequence, with the same policy number, "
+                     "passport, insured name, claim details, and documents. Stops at the first failed attempt.",
+            ))
             confirmed = st.checkbox(
                 "I confirm this uses dummy data and the destination is Merimen UAT.",
                 value=False,
@@ -592,7 +600,7 @@ with left:
         run_disabled = not suffix_valid or not confirmed
         run_clicked = st.button(
             "Prepare review" if mode == "review" else (
-                "Submit same UAT claim twice" if submit_twice else "Submit dummy UAT claim"
+                f"Submit same UAT claim {submit_count} times" if submit_count > 1 else "Submit dummy UAT claim"
             ),
             type="primary",
             use_container_width=True,
@@ -614,7 +622,7 @@ with right:
             st.write(f'**Actual departure:** {selected_flight["actual"]}')
         st.write(f"**Final action:** {'Stop for review' if mode == 'review' else 'Submit to UAT'}")
         if mode == "submit":
-            st.write(f"**Submissions:** {'2 identical claims' if submit_twice else '1 claim'}")
+            st.write(f"**Submissions:** {f'{submit_count} identical claims' if submit_count > 1 else '1 claim'}")
         st.write(f"**Policy suffix:** {suffix or 'None'}")
         st.markdown(
             '<div class="safe-note" id="safety"><strong>Safety boundary</strong><br>'
@@ -627,7 +635,7 @@ with right:
         detected_chromium = find_chromium()
         st.write("✅ Automation script included")
         st.write("✅ One run at a time")
-        st.write("✅ Twenty-minute timeout" if submit_twice else "✅ Ten-minute timeout")
+        st.write(f"✅ {RUN_TIMEOUT_SECONDS // 60 * submit_count}-minute timeout")
         st.write("✅ Chromium available" if detected_chromium else "ℹ️ Chromium is installed during cloud deployment")
 
         st.divider()
@@ -672,7 +680,7 @@ if run_clicked:
         baggage_amount=baggage_amount,
         live_preview_slot=live_preview_slot,
         run_status_slot=run_status_slot,
-        submit_twice=submit_twice,
+        submit_count=submit_count,
     )
     st.session_state["last_result"] = result
     history = st.session_state.setdefault("run_history", [])

@@ -16,7 +16,7 @@ require an explicit human confirmation before submitting.
 
 Usage:
     python singlife_travel_claim.py --case medical
-    python singlife_travel_claim.py --case medical --submit-twice
+    python singlife_travel_claim.py --case medical --submit-count 3
     python singlife_travel_claim.py --case flight_delay
     python singlife_travel_claim.py --case flight_delay --flight SQ957
     python singlife_travel_claim.py --case baggage
@@ -45,6 +45,10 @@ from playwright.sync_api import Page, TimeoutError as PWTimeoutError, sync_playw
 BASE_URL = "https://clientportaluat.merimen.com/public/client/clp/clpdashboard?ins_code=SG_SINGLIFE"
 
 DEFAULT_TIMEOUT_MS = 15_000
+
+# Upper bound on identical submissions in one run, to keep a single run from
+# flooding UAT or monopolising the one-run-at-a-time runner.
+MAX_SUBMIT_COUNT = 10
 
 
 def capture_live_screenshot(page: Page, stage: str) -> None:
@@ -909,19 +913,22 @@ CASES = {
 
 
 def run_claims(browser, pdf_dir: Path, *, case: str, run_kwargs: dict,
-               submit_twice: bool = False, pause_for_review: bool = False) -> None:
-    """Run once, or submit the same claim twice in separate browser sessions.
+               submit_count: int = 1, pause_for_review: bool = False) -> None:
+    """Run once, or submit the same claim submit_count times, each in a
+    separate browser session.
 
     Identity is generated once per run; scenario inputs and PDF contents are
     reused. A failed attempt stops the run without retrying a submission.
     """
     auto_submit = run_kwargs["auto_submit"]
-    if submit_twice and not auto_submit:
-        raise ValueError("Submitting twice cannot be combined with review mode")
+    if not 1 <= submit_count <= MAX_SUBMIT_COUNT:
+        raise ValueError(f"submit_count must be between 1 and {MAX_SUBMIT_COUNT}")
+    if submit_count > 1 and not auto_submit:
+        raise ValueError("Submitting more than once cannot be combined with review mode")
 
     run_fn = CASES[case]
     case_kwargs = {**run_kwargs, "identity": _random_claim_identity()}
-    total = 2 if submit_twice else 1
+    total = submit_count
     for attempt in range(1, total + 1):
         with browser.new_context() as context:
             page = context.new_page()
@@ -956,14 +963,16 @@ def main() -> int:
     parser.add_argument("--headed", action="store_true", help="Show the browser window")
     parser.add_argument("--slow-mo", type=int, default=0, help="Slow down each Playwright action by N ms")
     parser.add_argument("--no-submit", action="store_true", help="Fill the whole form but stop before clicking Confirm")
-    parser.add_argument("--submit-twice", action="store_true", help="Submit the exact same dummy claim twice, reusing its policy, passport, and all claim details")
+    parser.add_argument("--submit-count", type=int, default=1, metavar="N", help=f"Submit the exact same dummy claim N times (1-{MAX_SUBMIT_COUNT}; default 1), reusing its policy, passport, and all claim details")
     parser.add_argument("--policy-suffix", default="", help="Suffix appended to the dummy policy number, e.g. to make repeat runs distinguishable")
     parser.add_argument("--pdf-dir", default=None, help="Directory to write dummy upload PDFs into (default: a temp dir)")
     parser.add_argument("--medical-amount", default="250.00", help="Override the medical claim amount (--case medical only; default 250.00)")
     parser.add_argument("--baggage-item-amount", default="75.00", help="Override the per-item claim amount for both baggage items (--case baggage only; default 75.00)")
     args = parser.parse_args()
-    if args.submit_twice and args.no_submit:
-        parser.error("--submit-twice cannot be combined with --no-submit")
+    if not 1 <= args.submit_count <= MAX_SUBMIT_COUNT:
+        parser.error(f"--submit-count must be between 1 and {MAX_SUBMIT_COUNT}")
+    if args.submit_count > 1 and args.no_submit:
+        parser.error("--submit-count greater than 1 cannot be combined with --no-submit")
 
     if "clientportaluat.merimen.com" not in BASE_URL:
         print("Refusing to run: BASE_URL is not the UAT host.", file=sys.stderr)
@@ -990,7 +999,7 @@ def main() -> int:
             elif args.case == "baggage":
                 run_kwargs["item_amount"] = args.baggage_item_amount
             run_claims(browser, pdf_dir, case=args.case, run_kwargs=run_kwargs,
-                       submit_twice=args.submit_twice, pause_for_review=args.headed)
+                       submit_count=args.submit_count, pause_for_review=args.headed)
         finally:
             browser.close()
 
